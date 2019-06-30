@@ -20,7 +20,29 @@ firebase.initializeApp(firebaseConfig)
 
 const db = admin.firestore()
 
-app.get('/shouts', (req, res) => {
+const FBAuth = (req, res, next) => {
+  let idToken;
+  if(req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    idToken = req.headers.authorization.split('Bearer ')[1]
+  } else {
+    console.log('No token found');
+    return res.status(403).json({error: 'Unauthorized'})
+  }
+  admin.auth().verifyIdToken(idToken).then((decodedToken) => {
+    console.log(decodedToken);
+    req.user = decodedToken;
+    return db.collection('users').where('userId', '==', req.user.uid)
+    .limit(1).get()
+  }).then(data => {
+    req.user.handle = data.docs[0].data().handle;
+    return next();
+  }).catch(err => {
+    console.log(err);
+    return res.status(403).json(err)
+  })
+}
+
+app.get('/shouts', FBAuth, (req, res) => {
   db
   .collection('shouts')
   .orderBy('createdAt', 'desc')
@@ -42,11 +64,11 @@ app.get('/shouts', (req, res) => {
   })
 });
 
-app.post('/shout', (req, res) => {
+app.post('/shout', FBAuth, (req, res) => {
 
   const newShout = {
     body: req.body.body,
-    userHandle: req.body.userHandle,
+    userHandle: req.user.handle,
     createdAt: new Date().toISOString()
   };
 
@@ -151,7 +173,9 @@ app.post('/login', (req, res) => {
     return res.status(200).json({token})
   })
   .catch((err) => {
-    return res.status(500).json({error: err.code})
+    if(err.code === 'auth/wrong-password') {
+      return res.status(403).json({general: 'Wrong credentials, Please try again!'})
+    } else return res.status(500).json({error: err.code})
   })
 
 })

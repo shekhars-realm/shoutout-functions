@@ -75,31 +75,36 @@ exports.createNotificationOnComment = functions.region('europe-west1').firestore
 exports.onUserImageChange = functions.region('europe-west1').firestore.document('/users/{userId}')
   .onUpdate((change) => {
     console.log(change.before.data(), change.after.data());
-    if(change.before.data().imageUrl !== chanfe.after.data().imageUrl) {
+    if(change.before.data().imageUrl !== change.after.data().imageUrl) {
       let batch = db.batch();
-      return db.collection('screams').where('userHandle', '==', change.after.data().handle).get()
+      return db.collection('shouts').where('userHandle', '==', change.after.data().handle).get()
       .then((data) => {
         data.forEach(doc => {
           const shout = db.doc(`/shouts/${doc.id}`);
-          batch.update({shout, {userImage: change.after.data().imageUrl}});
+          batch.update(shout, {userImage: change.after.data().imageUrl});
         })
         return batch.commit();
       })
     }
   })
 
-exports.onShoutDelete = functions.region('europe-west1').firestore.document('/screams/{screamId}')
+exports.onShoutDelete = functions.region('europe-west1').firestore.document('/shouts/{shoutId}')
   .onDelete((snapshot, context) => {
     const shoutId = context.params.shoutId;
     const batch = db.batch();
-    return db.collection('comments').where('shoutId', '==', screamId).get().then(data => {
+    return db.collection('comments').where('shoutId', '==', shoutId).get().then(data => {
       data.forEach(doc => {
         batch.delete(db.doc(`/comments/${doc.id}`));
       })
-      return db.collection('likes').where('shoutId', '==', shoutId);
+      return db.collection('likes').where('shoutId', '==', shoutId).get();
     }).then(data => {
       data.forEach(doc => {
         batch.delete(db.doc(`/likes/${doc.id}`));
+      })
+      return db.collection('notifications').where('shoutId', '==', shoutId).get();
+    }).then(data =>{
+      data.forEach(doc => {
+        batch.delete(db.doc(`/notifications/${doc.id}`));
       })
       return batch.commit();
     }).catch((err) => {

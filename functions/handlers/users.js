@@ -50,9 +50,9 @@ exports.signup = (req, res) => {
   })
   .catch((err) => {
     if(err.code === 'auth/email-already-in-use') {
-      return res.status(400).json({error: 'Email already in use'})
+      return res.status(400).json({email: 'Email already in use'})
     } else {
-      return res.status(500).json({error: err.code})
+      return res.status(500).json({general: 'Something went wrong! Please try again.'})
     }
   })
 }
@@ -74,11 +74,43 @@ exports.login = (req, res) => {
     return res.status(200).json({token})
   })
   .catch((err) => {
-    if(err.code === 'auth/wrong-password') {
+    console.log(err);
       return res.status(403).json({general: 'Wrong credentials, Please try again!'})
-    } else return res.status(500).json({error: err.code})
   })
 
+}
+
+exports.getUserDetails = (req, res) => {
+  let userData = {};
+  db.doc(`/users/${req.params.handle}`).get().then((doc) => {
+    if(doc.exists) {
+      userData.user = doc.data();
+      return db
+        .collection('shouts')
+        .where('userHandle', '==', req.params.handle)
+        .orderBy('createdAt', 'desc')
+        .get();
+    } else {
+      return res.status(404).json({error: 'User not found!'})
+    }
+  }).then((data) => {
+    userData.shouts = [];
+    data.forEach((doc) => {
+      userData.shouts.push({
+        body: doc.data().body,
+        createdAt: doc.data().createdAt,
+        likeCount: doc.data().likeCount,
+        commentCount: doc.data().commentCount,
+        userImage: doc.data().userImage,
+        userHandle: doc.data().userHandle,
+        shoutId: doc.id
+      })
+    })
+    return res.json(userData)
+  }).catch((err) => {
+    console.log(err);
+    return res.status(500).json({error: err.code});
+  })
 }
 
 exports.addUserDetails = (req, res) => {
@@ -139,7 +171,6 @@ exports.getAuthenticatedUser = (req, res) => {
   db.doc(`/users/${req.user.handle}`).get().then(doc => {
     if(doc.exists) {
       userData.credentials = doc.data();
-      console.log('userData: ', userData);
       return db.collection('likes').where('userHandle', '==', req.user.handle).get()
     }
   }).then((data) => {
@@ -147,8 +178,40 @@ exports.getAuthenticatedUser = (req, res) => {
     data.forEach(doc => {
       userData.likes.push(doc.data());
     });
-    return res.json(userData);
+    return db.collection('notifications').where('recipient', '==', req.user.handle)
+    .orderBy('createdAt').limit(10).get();
+  }).then((data) => {
+    console.log(data);
+    userData.notifications = [];
+    data.forEach(doc => {
+      userData.notifications.push({
+        recipient: doc.data().recipient,
+        sender: doc.data().sender,
+        shoutId: doc.data().shoutId,
+        createdAt: doc.data().createdAt,
+        read: doc.data().read,
+        type: doc.data().type,
+        notificationId: doc.id
+      })
+    })
+    console.log('userData: ', userData);
+    return res.json(userData)
   }).catch((err) => {
+    console.log(err);
     return res.status(500).json({error: err.code})
+  })
+}
+
+exports.markNotificationRead = (req, res) => {
+  let batch = db.batch();
+  req.body.forEach(notificationId => {
+    const notification = db.doc(`/notifications/${notificationId}`);
+    batch.update(notification, {read: true});
+  });
+  batch.commit().then(() => {
+    return res.json({message: 'Notifications marked as read'});
+  }).catch((err) => {
+    console.log(err);
+    return res.status(500).json({error: err.code});
   })
 }
